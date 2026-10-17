@@ -5,8 +5,8 @@
 Transaction is a sequence of operations which are either all to be executed or
 none of them at all (atomicity), and that results of intermediate operations are
 not visible between different transactions (isolation). This project implements
-a concurrent transaction manager in Java 11 which was an assignment from classes
-on concurrent programming at the University of Warsaw.
+a concurrent multithreaded transaction manager in Java 11 which was an
+assignment from classes on concurrent programming at the University of Warsaw.
 
 To run the demo you should first compile using [compile.sh](compile.sh) and then
 `java cp1.demo.Transactions`.
@@ -16,7 +16,7 @@ To run the demo you should first compile using [compile.sh](compile.sh) and then
 We consider a system with a certain unknown number of threads. Threads operate
 on a certain collection of resources (objects inheriting after
 [`cp1.base.Resource`](cp1/base/Resource.java)), each of which has a constant
-unique id ([`cp1.base.ResourceId`](cp1/base/ResourceId.java)). As a result of
+unique ID ([`cp1.base.ResourceId`](cp1/base/ResourceId.java)). As a result of
 such operations (represented by objects implementing
 [`cp1.base.ResourceId`](cp1/base/ResourceId.java) interface) the collection of
 resources does not change. However, states of select resources may change.
@@ -45,37 +45,111 @@ transaction remains active until a moment it is finished as described below.
 
 ### Operations under a transaction
 
-Wykonanie przez wątek operacji na zasobie odbywa się poprzez wywołanie przez niego metody operateOnResourceInCurrentTransaction MT, której argumenty oznaczają identyfikator zasobu oraz operację do wykonania. Jeśli wątek nie ma aktywnej transakcji, wywołanie ww. metody kończy się zgłoszeniem wyjątku cp1.base.NoActiveTransactionException. Analogicznie, wywołanie dla identyfikatora zasobu, który nie jest pod kontrolą MT, kończy się wyjątkiem cp1.base.UnknownResourceIdException z argumentem odpowiadającym identyfikatorowi niekontrolowanego zasobu. Wreszcie, jeśli aktywna transakcja została wcześniej anulowana, jak wyjaśniamy dalej, to wywołanie kończy się wyjątkiem cp1.base.ActiveTransactionAborted.
+A thread executes an operation on a resource by calling TM's method
+`operateOnResourceInCurrentTransaction`, which takes the resource's ID and an
+operation to execute as arguments. If the thread does not have an active
+transaction, this method call throws
+[`cp1.base.NoActiveTransactionException`](cp1/base/NoActiveTransactionException.java).
+Similarly, this method, when called with a resource ID which is not managed by
+the TM, throws
+[`cp1.base.UnknownResourceIdException`](cp1/base/UnknownResourceIdException.java)
+with this unknown ID as the argument. If an active transaction has been
+previously aborted, as explained further, the method call throws
+[`cp1.base.ActiveTransactionAborted`](cp1/base/ActiveTransactionAborted.java).
 
-W przeciwnym razie wątek rozpoczyna ubieganie się o dostęp do wskazanego zasobu. Jeśli w ramach aktywnej transakcji wątek już taki dostęp uzykał poprzednio, to jest udało mu się wcześniej co najmniej raz rozpocząć wykonanie jakiejś operacji na tym samym zasobie, to dostęp jest mu przyznawany natychmiastowo. W przeciwnym przypadku sprawdzane jest, czy inna aktywna transakcja miała kiedykolwiek przyznany dostęp do zasobu. Jeśli taka transakcja nie istnieje, to dostęp zostaje przyznany rozważanej transakcji. W przeciwnym razie z kolei rozważana transakcja musi potencjalnie zaczekać na zakończenie transakcji, która uzyskała wcześniej dostęp do wskazanego zasobu.
+Otherwise, the thread requests access to the resource. If the access has been
+granted already under the active transaction, meaning that the thread has
+executed an operation on the resource at least once, the access is granted
+immediately. Otherwise, a check is performed if another active transaction with
+the access to the resource exists. If such a transaction does not exist, the
+access is granted to the requesting thread. Otherwise, the requesting thread
+must potentially wait until the transaction with the access finishes.
 
-Jednakże gdy takie oczekiwanie doprowadziłoby do zakleszczenia pewnej grupy transakcji, MT anuluje tę z transakcji w grupie, która została rozpoczęta najpóźniej. Czas rozpoczęcia mierzony jest wartością metody getTime interfejsu LocalTimeProvider (przekazanemu MT przy jego tworzeniu), a w przypadku, gdy kilka transakcji ma ten sam czas rozpoczęcia, decydują identyfikatory wykonujących je wątków (metoda getId klasy Thread), to jest transakcja wątku z największym identyfikatorem uważana jest za najpóźniejszą spośród transakcji z tym samym czasem rozpoczęcia. Anulowanie transakcji wymaga także przerwania wątku, który ją rozpoczął (metoda interrupt klasy Thread).
+If such waiting would cause a deadlock for a collection of transactions, TM
+aborts the transaction which has started the latest. The start time is measured
+using `getTime` method of
+[`cp1.base.LocalTimeProvider`](cp1/base/LocalTimeProvider.java) interface
+(passed to the TM upon its creation). In the case, when a few transactions have
+the same start time, IDs of threads responsible for these transactions decide
+which transaction is aborted (`getId` method of `Thread`), meaning that the
+transaction of a thread wit hthe highest ID is determined to have the latest
+start among all transactions with the same start time. Aborting a transaction
+also means interrupting the thread which started it (`interrupt` method of
+`Thread`).
 
-Anulowana transakcja nie może być kontynuowana, to jest można jedynie ją zakończyć, jak wyjaśniamy dalej. W szczególności, jak wspomniano wcześniej, próba wykonania jakiejkolwiek operacji w ramach tej transakcji kończy się wyjątkiem cp1.base.ActiveTransactionAborted.
+An aborted transaction cannot be continued, meaning it can only be finished, as
+explained further. In particular, as mentioned earlier, an attempt to execute
+any operation under such transaction throws
+[`cp1.base.ActiveTransactionAborted`](cp1/base/ActiveTransactionAborted.java).
 
-Gdy wątek uzyska już dostęp do zasobu, MT rozpoczyna wykonywanie na tym zasobie operacji przekazanej jako argument funkcji operateOnResourceInCurrentTransaction poprzez wywołanie na obiekcie tej operacji metody execute interfejsu cp1.base.ResourceOperation z argumentem odpowiadającym zasobowi. Wykonanie operacji musi się odbyć w kontekście wątku, który tę operację zlecił, to jest żaden wątek nie może wykonać ww. metody execute na obiekcie operacji przekazanej MT przez inny wątek.
+When a thread has access to a resource, TM starts executing the operation on the
+resource passed to it as the `operateOnResourceInCurrentTransaction` method's
+argument by calling the operation's `execute` method of the
+[`cp1.base.ResourceOperation`](cp1/base/ResourceOperation.java) interface with
+the resource as the argument. The execution must be done inside the thread which
+ordered the operation, meaning that no other thread can call `execute` on the
+operation object passed to TM by a different thread.
 
-Wykonanie operacji może zakończyć się wyjątkiem cp1.base.ResourceOperationException, który musi zostać przekazany przez MT do wołającego wątku. W takim przypadku mówimy, że operacja kończy się niepowodzeniem. Metoda execute operacji kończącej się niepowodzeniem gwarantuje, że zasób pozostaje w nienaruszonym stanie, to jest stanie sprzed wykonania tej operacji.
+An operation may throw
+[`cp1.base.ResourceOperationException`](cp1/base/ResourceOperationException.java),
+which must be propagated to the caller thread by the TM. In such a case, the
+operation was unsuccessful. `execute` method of an unsuccessful operation
+guarantees that the resource stays in the same state as before the call.
 
-Operacja, której wykonanie nie spowoduje wyjątku cp1.base.ResourceOperationException kończy się natomiast sukcesem. Taka operacja może zmodyfikować stan zasobu.
+If an operation did not throw such an exception, it means the operation was
+successful. A successful operation may modify a resource's state.
 
-Niezależnie od tego, jak się zakończy, dana operacja może być przez wątek wykonywana wiele razy, na tych samych lub różnych zasobach. Co więcej, różne wykonania tej samej operacji mogą się różnie kończyć.
+Independent of the success, an operation may be executed by a thread multiple
+times, on the same resource or different ones. Furthermore, different executions
+may have different results.
 
-Należy także zauważyć, iż w trakcie oczekiwania na zasób lub wykonywania na nim operacji, wątek może zostać przerwany (poprzez wywołanie metody interrupt z klasy Thread). W takim przypadku wywołanie metody operateOnResourceInCurrentTransaction MT kończy się wyjątkiem InterruptedException, pozostawiając bez zmian zarówno stan zasobu, jak i transakcji, przy czym w zależności od momentu, w którym pojawiło się przerwanie, transakcja może dostać lub nie dostęp do zasobu. Dokładniej, jeśli przerwanie pojawiło się przed lub w trakcie przyznawania dostępu, to transakcja tego dostępu nie uzyskuje. W przeciwnym przypadku dostęp zostaje przyznany.
-Kończenie transakcji
+During a wait for a given resource, or while executing an operation on it, a
+thread may be interrupted (by an `interrupt` call). In such a case,
+`operateOnResourceInCurrentTransaction` throws `InterruptedException`, leaving
+the resource in an unchanged state, as well as the transaction. In particular,
+depending on the moment when the interruption occured, the transaction may or
+may not acquire access to the resource. More precisely, if the interruption
+occured before or during the process of granting access, the transaction does
+not acquire access. Otherwise, the access is granted.
 
-Wątek może zakończyć aktywną transakcję na jeden z dwóch sposobów:
+### Transaction finish
 
-    poprzez zatwierdzenie (wywołanie metody commitCurrentTransaction MT) albo
-    poprzez cofnięcie (wywołanie metody rollbackCurrentTransaction MT).
+A thread may finish an active transaction in two ways:
 
-Zatwierdzenie transakcji powoduje, że wszelkie zmiany zasobów MT wykonane przez operacje w ramach tej transakcji stają się widoczne dla innych transakcji. Zatwierdzenie transakcji przez wątek nie udaje się tylko w dwóch przypadkach. Po pierwsze, gdy wątek nie ma aktywnej transakcji, zgłaszany jest wyjątek cp1.base.NoActiveTransactionException. Po drugie, gdy aktywna transakcja wątku została wcześniej anulowana, zgłaszany jest wyjątek cp1.base.ActiveTransactionAborted a transakcja nie jest kończona.
+- by committing (calling `commitCurrentTransaction` method of TM)
+- by performing a rollback (calling `rollbackCurrentTransaction` method of TM).
 
-Cofnięcie transakcji powoduje z kolei, że wszelkie zmiany zasobów MT wykonane przez operacje w ramach tej transakcji zostają wycofane, to jest stan tych zasobów jest taki sam, jak w momencie rozpoczynania transakcji. Cofnięcie transakcji przez wątek zawsze się udaje. W szczególności, gdy wątek nie ma aktywnej transakcji, jest to po prostu operacja pusta.
+Committing a transaction causes that all resource's modifications by TM are made
+visible to all the other transactions. Committing a transaction fails only in
+two cases:
 
-Wycofanie zmian wykonanych przez daną operację na danym zasobie odbywa się poprzez wywołanie na obiekcie tej operacji metody undo interfejsu cp1.base.ResourceOperation z argumentem odpowiadającym zasobowi. Jak w przypadku metody execute, wywołanie metody undo dla operacji musi odbyć się w kontekście wątku, który tę operację zlecił. W przeciwieństwie do metody execute, metoda undo nie zgłasza żadnych wyjątków. Wycofywane są jedynie operacje zakończone sukcesem i robione jest to w odwrotnej kolejności niż kolejność ich wykonania w ramach transakcji.
+1) the thread does not have an active transaction,
+[`cp1.base.NoActiveTransactionException`](cp1/base/NoActiveTransactionException.java)
+is thrown,
+2) the thread's active transaction was aborted,
+[`cp1.base.ActiveTransactionAborted`](cp1/base/ActiveTransactionAborted.java)
+is thrown and the transaction is not finished.
 
-Zakończenie transakcji na którykolwiek z dwóch możliwych sposobów powoduje, że MT przestaje przechowywać jakiekolwiek informacje związane z tą transakcją.
-Sprawdzanie stanu transakcji
+Performing a transaction's rollback causes that any resource modification
+executed by TM with operations under this transaction are undone, meaning that
+the states of the affected resources is the same as before the start of the
+transaction. Rollbacks always succeed. In particular, when a thread does not
+have an active transaction, rollback is a NOP.
 
-MT udostępnia jeszcze dwie metody pozwalające wątkowi sprawdzić stan swojej transakcji. Metoda isTransactionActive, wywołana w kontekście wątku, zwraca true wtedy i tylko wtedy, gdy wątek ten ma aktywną transakcję. Metoda isTransactionAborted z kolei zwraca true wtedy i tylko wtedy, gdy wątek ma aktywną transakcję, lecz została ona anulowana.
+Undoing the modifications by a given operation on a given resource is done with
+a call to to the operation's `undo` method with the resource as the argument.
+Similarly to the `execute` method, `undo` must be called by the thread which
+ordered the operation. In contrast to `execute`, `undo` does not throw
+exceptions. Only successful operations are undone, and they are undone in a
+reverse order of their initial execution under the transaction.
+
+Finishing a transaction in both of the available ways causes TM to stop
+storing information about this transaction.
+
+### Checking transaction's state
+
+TM offers two additional methods for a thread to check the state of its
+transaction. `isTransactionActive` method called by a thread returns `true` if
+and only if the thread has an active transaction. `isTransactionAborted` method
+returns `true` if and only if the thread has an active transaction which was
+aborted.
