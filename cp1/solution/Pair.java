@@ -7,20 +7,20 @@
  */
 package cp1.solution;
 
-public class Pair<K, V>{
-    private K key;
-    private V value;
+public class Pair<A, B> {
+    private A first;
+    private B second;
 
-    public Pair(K key, V value) {
-        this.key = key;
-        this.value = value;
+    public Pair(A first, B second) {
+        this.first = first;
+        this.second = second;
     }
 
-    public K get_key() {
-        return key;
+    public A getFirst() {
+        return first;
     }
 
-    public V get_value() {
-        return value;
+    public B getSecond() {
+        return second;
     }
 }

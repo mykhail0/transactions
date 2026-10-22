@@ -27,7 +27,7 @@ public class Transaction {
         this.resources = resources;
     }
 
-    // Inserts a successful operation.
+    // Log a successful operation.
     public void operated(ResourceOperation op, ResourceId id) {
         operations.push(new Pair<ResourceOperation, ResourceId>(op, id));
     }
@@ -35,11 +35,11 @@ public class Transaction {
     public void rollback() {
         while (!operations.isEmpty()) {
             Pair<ResourceOperation, ResourceId> p = operations.pop();
-            p.get_key().undo(resources.get(p.get_value()));
+            p.getFirst().undo(resources.get(p.getSecond()));
         }
     }
 
-    public long get_time() {
+    public long getTime() {
         return time;
     }
 

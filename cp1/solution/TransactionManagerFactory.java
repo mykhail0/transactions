@@ -35,6 +35,6 @@ public final class TransactionManagerFactory {
     public final static TransactionManager newTM(
             Collection<Resource> resources,
             LocalTimeProvider timeProvider) {
-        return new Manager(resources, timeProvider);
+        return new TransactionManagerImpl(resources, timeProvider);
     }
 }

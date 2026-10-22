@@ -9,7 +9,8 @@ a concurrent multithreaded transaction manager in Java 11 which was an
 assignment from classes on concurrent programming at the University of Warsaw.
 
 To run the demo you should first compile using [compile.sh](compile.sh) and then
-`java cp1.demo.Transactions`.
+`java cp1.demo.Transactions`. To test you can run
+`java -ea cp1.tests.Transactions`.
 
 ## Specification
 
@@ -72,7 +73,7 @@ using `getTime` method of
 (passed to the TM upon its creation). In the case, when a few transactions have
 the same start time, IDs of threads responsible for these transactions decide
 which transaction is aborted (`getId` method of `Thread`), meaning that the
-transaction of a thread wit hthe highest ID is determined to have the latest
+transaction of a thread with the highest ID is determined to have the latest
 start among all transactions with the same start time. Aborting a transaction
 also means interrupting the thread which started it (`interrupt` method of
 `Thread`).
