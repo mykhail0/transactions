@@ -39,6 +39,82 @@ public class Transactions {
         operationInterruptedDuringExecuteShouldntBeUndoDuringRollback();
         test1();
         testJankowski();
+        parallelTest();
+    }
+
+    public static void parallelTest() {
+        ArrayList<ResourceImpl> resources = new ArrayList<ResourceImpl>();
+        for (int i = 0; i < 16; ++i) {
+            resources.add(new ResourceImpl(ResourceIdImpl.generate()));
+        }
+        TransactionManager tm = TransactionManagerFactory.newTM(
+                Collections.unmodifiableList(resources),
+                new LocalTimeProviderImpl());
+        final int WAIT_TIME = 1000;
+
+        final class WorkFunc implements Runnable {
+            private Resource res;
+
+            public WorkFunc(Resource res) {
+                this.res = res;
+            }
+
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(WAIT_TIME);
+                    try {
+                        tm.startTransaction();
+                    } catch (AnotherTransactionActiveException e) {
+                        throw new AssertionError(e);
+                    }
+                    if (!tm.isTransactionActive()) {
+                        throw new AssertionError("Failed to start a transaction");
+                    }
+                    tm.operateOnResourceInCurrentTransaction(
+                            res.getId(),
+                            ResourceOpImpl.get());
+                    tm.commitCurrentTransaction();
+                    if (tm.isTransactionActive()) {
+                        throw new AssertionError("Failed to commit a transaction");
+                    }
+                    if (tm.isTransactionAborted()) {
+                        throw new AssertionError("Shouldn't be aborted");
+                    }
+                } catch (UnknownResourceIdException | ResourceOperationException | ActiveTransactionAborted
+                        | NoActiveTransactionException | InterruptedException e) {
+                    throw new AssertionError(e);
+                } finally {
+                    tm.rollbackCurrentTransaction();
+                }
+            }
+        }
+
+        List<Thread> threads = new ArrayList<Thread>();
+        for (Resource r : resources) {
+            threads.add(new Thread(new WorkFunc(r)));
+            threads.add(new Thread(new WorkFunc(r)));
+        }
+        long start = System.nanoTime();
+        for (Thread thread : threads) {
+            thread.start();
+        }
+        try {
+            for (Thread t : threads) {
+                t.join();
+            }
+        } catch (InterruptedException e) {
+            throw new AssertionError("The main thread has been interrupted");
+        }
+        long end = System.nanoTime();
+        long duration = (end - start) / 1000000;
+        if (duration >= 2 * WAIT_TIME + 500) {
+            throw new AssertionError("Parallel test took too much time");
+        }
+
+        for (ResourceImpl r : resources) {
+            expectResourceValue(r, 2);
+        }
     }
 
     public static void interruptFlagSetInUndoShouldntBeChangedByRollback() {
@@ -88,7 +164,7 @@ public class Transactions {
         });
         thread.start();
         try {
-            thread.join(10 * BASE_WAIT_TIME);
+            thread.join();
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
         }
@@ -148,7 +224,7 @@ public class Transactions {
 
         thread.start();
         try {
-            thread.join(10 * BASE_WAIT_TIME);
+            thread.join();
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
         }
@@ -270,7 +346,7 @@ public class Transactions {
         }
         try {
             for (Thread t : threads) {
-                t.join(10 * BASE_WAIT_TIME);
+                t.join();
             }
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
@@ -378,7 +454,7 @@ public class Transactions {
         }
         try {
             for (Thread t : threads) {
-                t.join(10 * BASE_WAIT_TIME);
+                t.join();
             }
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
@@ -482,7 +558,7 @@ public class Transactions {
         }
         try {
             for (Thread t : threads) {
-                t.join(10 * BASE_WAIT_TIME);
+                t.join();
             }
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
@@ -647,7 +723,7 @@ public class Transactions {
         }
         try {
             for (Thread t : threads) {
-                t.join(10 * BASE_WAIT_TIME);
+                t.join();
             }
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
@@ -794,7 +870,7 @@ public class Transactions {
         }
         try {
             for (Thread t : threads) {
-                t.join(10 * BASE_WAIT_TIME);
+                t.join();
             }
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
@@ -903,7 +979,7 @@ public class Transactions {
         }
         try {
             for (Thread t : threads) {
-                t.join(10 * BASE_WAIT_TIME);
+                t.join();
             }
         } catch (InterruptedException e) {
             throw new AssertionError("The main thread has been interrupted");
@@ -1029,7 +1105,7 @@ public class Transactions {
             }
             try {
                 for (Thread t : threads) {
-                    t.join(10 * BASE_WAIT_TIME);
+                    t.join();
                 }
             } catch (InterruptedException e) {
                 throw new AssertionError("The main thread has been interrupted");
