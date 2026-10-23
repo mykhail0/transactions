@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import cp1.base.ResourceId;
 import cp1.base.ResourceOperation;
@@ -40,6 +41,46 @@ public class Transactions {
         test1();
         testJankowski();
         parallelTest();
+        testCritical();
+    }
+
+    public static void testCritical() {
+        ResourceImpl r = new ResourceImpl(ResourceIdImpl.generate());
+        List<Resource> resources = Collections.unmodifiableList(Arrays.asList(r));
+        TransactionManager tm = TransactionManagerFactory.newTM(
+                resources,
+                new LocalTimeProviderImpl());
+        List<Thread> threads = new ArrayList<Thread>();
+        Runnable workFunc = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    tm.startTransaction();
+                    tm.operateOnResourceInCurrentTransaction(
+                            r.getId(),
+                            CriticalResourceOpImpl.get());
+                    tm.commitCurrentTransaction();
+                } catch (AnotherTransactionActiveException | NoActiveTransactionException
+                        | UnknownResourceIdException | ActiveTransactionAborted | ResourceOperationException
+                        | InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+            }
+        };
+        for (int i = 0; i < 2; ++i) {
+            threads.add(new Thread(workFunc));
+        }
+        for (Thread thread : threads) {
+            thread.start();
+        }
+        try {
+            for (Thread t : threads) {
+                t.join();
+            }
+        } catch (InterruptedException e) {
+            throw new AssertionError("The main thread has been interrupted");
+        }
+        expectResourceValue(r, 2);
     }
 
     public static void parallelTest() {
@@ -1227,6 +1268,51 @@ public class Transactions {
                         r.getClass().getCanonicalName());
             }
             ((ResourceImpl) r).incValue();
+        }
+
+        @Override
+        public void undo(Resource r) {
+            if (!(r instanceof ResourceImpl)) {
+                throw new AssertionError("Unexpected resource type " +
+                        r.getClass().getCanonicalName());
+            }
+            ((ResourceImpl) r).decValue();
+        }
+    }
+
+    private static final class CriticalResourceOpImpl extends ResourceOperation {
+        private final static CriticalResourceOpImpl singleton = new CriticalResourceOpImpl();
+        private AtomicInteger thread_count;
+
+        public static ResourceOperation get() {
+            return singleton;
+        }
+
+        private CriticalResourceOpImpl() {
+            thread_count = new AtomicInteger();
+        }
+
+        @Override
+        public String toString() {
+            return "OP_" + super.toString();
+        }
+
+        @Override
+        public void execute(Resource r) {
+            if (thread_count.incrementAndGet() != 1) {
+                throw new AssertionError("More than 1 thread in critical section");
+            }
+            try {
+                Thread.sleep(2 * BASE_WAIT_TIME);
+            } catch (InterruptedException e) {
+                throw new AssertionError("Sleep shouldn't throw in the test");
+            }
+            if (!(r instanceof ResourceImpl)) {
+                throw new AssertionError("Unexpected resource type " +
+                        r.getClass().getCanonicalName());
+            }
+            ((ResourceImpl) r).incValue();
+            thread_count.decrementAndGet();
         }
 
         @Override
