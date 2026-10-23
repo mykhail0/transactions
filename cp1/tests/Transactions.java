@@ -30,14 +30,14 @@ public class Transactions {
     private final static long BASE_WAIT_TIME = 500;
 
     public static void main(String[] args) {
-        // demo();
-        // abortingTransactionShouldThrowRightException();
-        // interruptDuringExecuteShouldReserveResource();
-        // interruptFlagShouldntBeChangedByCommit();
-        // interruptFlagShouldntBeChangedByRollback();
-        // interruptFlagSetInUndoShouldntBeChangedByRollback();
-        // operationInterruptedDuringExecuteShouldntBeUndoDuringRollback();
-        // test1();
+        demo();
+        abortingTransactionShouldThrowRightException();
+        interruptDuringExecuteShouldReserveResource();
+        interruptFlagShouldntBeChangedByCommit();
+        interruptFlagShouldntBeChangedByRollback();
+        interruptFlagSetInUndoShouldntBeChangedByRollback();
+        operationInterruptedDuringExecuteShouldntBeUndoDuringRollback();
+        test1();
         testJankowski();
     }
 
@@ -931,9 +931,7 @@ public class Transactions {
      */
     public static void testJankowski() {
 
-        int licznik = 0;
-        while (true) {
-            licznik++;
+        for (int licznik = 0; licznik < 5; ++licznik) {
             System.out.println(licznik);
             // Set up resources.
             ResourceImpl r0 = new ResourceImpl(ResourceIdImpl.generate());
